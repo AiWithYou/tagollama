@@ -20,11 +20,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class ImageAnalyzer:
-    def __init__(self, model="gemma3:27b", use_japanese=False, detail_level="standard", custom_prompt=None):
+    def __init__(self, model="gemma3:27b", use_japanese=False, detail_level="standard", custom_prompt=None, clean_custom_response=True):
         self.model = model
         self.use_japanese = use_japanese
         self.detail_level = detail_level
         self.custom_prompt = custom_prompt
+        self.clean_custom_response = clean_custom_response
         self.api_url = "http://localhost:11434/api/generate"
         self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
 
@@ -96,8 +97,8 @@ class ImageAnalyzer:
                 return "Describe this image in 4-5 sentences, including visual elements, actions, and atmosphere. No introductory phrases."
 
     def clean_response(self, response):
-        """レスポンスから不要なテキストを削除"""
-        # 前置きや余計な表現を削除
+        """レスポンスから不要なテキストを削除し、単語/文章の羅列のみを残す"""
+        # 1. 最初のクリーニング：明確な前置き表現の削除
         patterns = [
             r"^Here's .*?:",
             r"^This image shows",
@@ -107,17 +108,62 @@ class ImageAnalyzer:
             r"^This image depicts",
             r"^The photo shows",
             r"^The picture shows",
+            r"^I will describe",
+            r"^I'll describe",
+            r"^Let me describe",
+            r"^I can see",
             r"^画像には",
             r"^この画像には",
             r"^この画像は",
             r"^写真には",
             r"^画像は",
+            r"^この画像を.*?で説明します。?\n?",
+            r"^以下.*?で説明します。?\n?",
             r"^、"
         ]
         
         text = response.strip()
         for pattern in patterns:
             text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+        # 2. 追加のクリーニング：一般的な接続表現や余計な説明の削除
+        additional_patterns = [
+            r"^また、?",
+            r"^そして、?",
+            r"^なお、?",
+            r"^さらに、?",
+            r"^加えて、?",
+            r"^特に、?",
+            r"^具体的には、?",
+            r"^Additionally,\s*",
+            r"^Moreover,\s*",
+            r"^Furthermore,\s*",
+            r"^Also,\s*",
+            r"^And\s*",
+            r"^Specifically,\s*",
+            r"^There\s+(?:is|are)\s+",
+            r"^We\s+can\s+see\s+",
+            r"^You\s+can\s+see\s+",
+            r"^It\s+appears\s+",
+            r"これは",
+            r"それは",
+            r"以下は",
+            r"次のような",
+            r"(?:以下の)?(?:画像に適用できる)?(?:Danbooru|だんぼーる|ダンボール|ダンボーる)?タグ(?:です|となります)。?\n?",
+            r"タグ(?:一覧|リスト)：\n?",
+            r"^[*＊・]",  # 行頭の箇条書き記号
+            r"^、",  # 行頭の読点
+            r"主な(?:特徴|要素)(?:：|は)(?:以下の)?(?:通り|とおり)(?:です)?。?\n?",
+        ]
+        
+        for pattern in additional_patterns:
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+        # 3. テキストを1行に整形
+        text = re.sub(r'[・\-•*＊\n] ?', ', ', text)  # 箇条書き記号と改行をカンマに変換
+        parts = [part.strip() for part in text.split(',')]  # カンマで分割
+        parts = [part for part in parts if part and not part.startswith('、')]  # 空と読点で始まる部分を除外
+        text = ', '.join(parts)  # カンマ区切りで結合
             
         return text.strip()
 
@@ -144,7 +190,12 @@ class ImageAnalyzer:
             response.raise_for_status()
             
             result = response.json()
-            return self.clean_response(result.get('response', 'No analysis available'))
+            response_text = result.get('response', 'No analysis available')
+            
+            # カスタムプロンプトの場合でも、clean_custom_responseがTrueなら前置きを削除
+            if self.custom_prompt and not self.clean_custom_response:
+                return response_text
+            return self.clean_response(response_text)
 
         except requests.exceptions.RequestException as e:
             logger.error(f"API通信中にエラーが発生しました: {str(e)}")
@@ -153,7 +204,7 @@ class ImageAnalyzer:
             logger.error(f"画像分析中にエラーが発生しました: {str(e)}")
             raise
 
-    def process_directory(self, directory_path, progress_callback=None):
+    def process_directory(self, directory_path, progress_callback=None, stop_check=None):
         """指定されたディレクトリ内の全画像を処理する"""
         directory = Path(directory_path)
         if not directory.exists():
@@ -170,6 +221,10 @@ class ImageAnalyzer:
         error_count = 0
 
         for image_path in image_files:
+            if stop_check and stop_check():
+                logger.info("処理が停止されました")
+                break
+                
             try:
                 logger.info(f"処理中: {image_path.name}")
                 
@@ -200,6 +255,7 @@ class ImageAnalyzerGUI:
         self.root = tk.Tk()
         self.root.title("画像分析ツール")
         self.root.geometry("800x700")  # 高さを増やして新しい要素を収容
+        self.stop_analysis = False
         
         # メインフレーム
         main_frame = ttk.Frame(self.root, padding="10")
@@ -234,6 +290,18 @@ class ImageAnalyzerGUI:
             width=70
         )
         self.custom_prompt.pack(fill="x", padx=5)
+
+        # カスタムプロンプトのオプション設定
+        prompt_options_frame = ttk.Frame(prompt_frame)
+        prompt_options_frame.pack(fill="x", padx=5, pady=(5, 0))
+        
+        self.clean_custom_response_var = tk.BooleanVar(value=True)
+        self.clean_custom_checkbox = ttk.Checkbutton(
+            prompt_options_frame,
+            text="前置きや余計な表現を削除",
+            variable=self.clean_custom_response_var
+        )
+        self.clean_custom_checkbox.pack(side="left")
 
         # 説明の詳細度
         detail_frame = ttk.LabelFrame(main_frame, text="説明の詳細度（カスタムプロンプト使用時は無効）", padding=10)
@@ -292,13 +360,17 @@ class ImageAnalyzerGUI:
         self.log_text.pack(fill="both", expand=True)
         log_scroll.config(command=self.log_text.yview)
         
-        # ボタンフレーム
+        # ボタンフレーム（中央寄せ）
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill="x", pady=(0, 5))
         
+        # ボタンを配置するための内部フレーム（中央寄せ用）
+        button_center_frame = ttk.Frame(button_frame)
+        button_center_frame.pack(anchor="center")
+        
         # 実行ボタン（目立つスタイル）
         self.run_button = tk.Button(
-            button_frame,
+            button_center_frame,
             text="画像分析実行",
             command=self.run_analysis,
             bg="#4CAF50",  # 緑色
@@ -307,7 +379,21 @@ class ImageAnalyzerGUI:
             width=20,
             height=2
         )
-        self.run_button.pack(pady=10)
+        self.run_button.pack(side="left", padx=5, pady=10)
+
+        # 停止ボタン
+        self.stop_button = tk.Button(
+            button_center_frame,
+            text="分析を停止",
+            command=self.stop_analysis_handler,
+            bg="#f44336",  # 赤色
+            fg="white",
+            font=('Helvetica', 12, 'bold'),
+            width=20,
+            height=2,
+            state="disabled"  # 初期状態は無効
+        )
+        self.stop_button.pack(side="left", padx=5, pady=10)
 
         # 初期メッセージ
         self.append_log("画像分析ツールを起動しました。")
@@ -335,13 +421,21 @@ class ImageAnalyzerGUI:
         self.log_text.see(tk.END)
         self.root.update_idletasks()
 
+    def stop_analysis_handler(self):
+        """分析処理を停止する"""
+        self.stop_analysis = True
+        self.stop_button.config(state="disabled")
+        self.append_log("分析停止を要求しました。現在の処理が完了するまでお待ちください...")
+
     def run_analysis(self):
         folder_path = self.folder_var.get()
         if not folder_path:
             self.append_log("エラー: フォルダを選択してください。")
             return
 
+        self.stop_analysis = False
         self.run_button.config(state="disabled")
+        self.stop_button.config(state="normal")
         self.progress_var.set(0)
 
         # ログハンドラーの設定
@@ -363,19 +457,26 @@ class ImageAnalyzerGUI:
                     model=self.model_var.get(),
                     use_japanese=self.use_japanese_var.get(),
                     detail_level=self.detail_level_var.get(),
-                    custom_prompt=custom_prompt if custom_prompt else None
+                    custom_prompt=custom_prompt if custom_prompt else None,
+                    clean_custom_response=self.clean_custom_response_var.get()  # チェックボックスの値を使用
                 )
                 processed, errors = analyzer.process_directory(
                     folder_path,
-                    progress_callback=self.update_progress
+                    progress_callback=self.update_progress,
+                    stop_check=lambda: self.stop_analysis
                 )
-                self.append_log(f"\n処理完了:")
+                if self.stop_analysis:
+                    self.append_log("\n処理が停止されました:")
+                else:
+                    self.append_log("\n処理完了:")
                 self.append_log(f"処理された画像数: {processed}")
                 self.append_log(f"エラー数: {errors}")
             except Exception as e:
                 self.append_log(f"エラーが発生しました: {str(e)}")
             finally:
                 self.run_button.config(state="normal")
+                self.stop_button.config(state="disabled")
+                self.stop_analysis = False
 
         Thread(target=analysis_thread, daemon=True).start()
 
