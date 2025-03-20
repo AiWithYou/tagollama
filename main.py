@@ -1,6 +1,8 @@
 import os
 import base64
 import requests
+import subprocess
+import time
 from pathlib import Path
 from PIL import Image
 import io
@@ -25,6 +27,41 @@ class ImageAnalyzer:
         self.custom_prompt = custom_prompt
         self.api_url = "http://localhost:11434/api/generate"
         self.supported_formats = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+
+    def start_ollama(self):
+        """Ollamaを起動する"""
+        try:
+            # Ollamaの状態をチェック
+            try:
+                response = requests.get("http://localhost:11434/api/tags")
+                if response.status_code == 200:
+                    logger.info("Ollamaは既に起動しています")
+                    return True
+            except requests.exceptions.ConnectionError:
+                pass
+
+            logger.info("Ollamaを起動しています...")
+            # PowerShellでバックグラウンド実行
+            subprocess.Popen(['powershell', 'Start-Process', 'ollama', 'serve'], 
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+
+            # Ollamaが起動するまで待機
+            max_attempts = 30
+            for _ in range(max_attempts):
+                try:
+                    response = requests.get("http://localhost:11434/api/tags")
+                    if response.status_code == 200:
+                        logger.info("Ollama起動完了")
+                        return True
+                except requests.exceptions.ConnectionError:
+                    time.sleep(1)
+                    continue
+
+            logger.error("Ollamaの起動がタイムアウトしました")
+            return False
+        except Exception as e:
+            logger.error(f"Ollamaの起動中にエラーが発生しました: {str(e)}")
+            return False
 
     def encode_image(self, image_path):
         """画像をBase64エンコードする"""
@@ -74,7 +111,8 @@ class ImageAnalyzer:
             r"^この画像には",
             r"^この画像は",
             r"^写真には",
-            r"^画像は"
+            r"^画像は",
+            r"^、"
         ]
         
         text = response.strip()
@@ -86,6 +124,13 @@ class ImageAnalyzer:
     def analyze_image(self, image_path):
         """画像を分析して結果を返す"""
         try:
+            # Ollamaが起動していない場合は起動を試みる
+            try:
+                response = requests.get("http://localhost:11434/api/tags")
+            except requests.exceptions.ConnectionError:
+                if not self.start_ollama():
+                    raise Exception("Ollamaの起動に失敗しました")
+
             base64_image = self.encode_image(image_path)
             
             payload = {
@@ -266,6 +311,7 @@ class ImageAnalyzerGUI:
 
         # 初期メッセージ
         self.append_log("画像分析ツールを起動しました。")
+        self.append_log("※ Ollamaが起動していない場合は自動的に起動を試みます")
         self.append_log("1. Ollamaモデルを確認してください")
         self.append_log("2. 必要に応じて日本語出力を選択してください")
         self.append_log("3. 必要に応じてカスタムプロンプトを入力してください")
