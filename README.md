@@ -47,7 +47,9 @@ pip install -r requirements.txt
 ```bash
 ollama pull gemma:27b
 ```
-![alt text](image-1.png)
+![image](https://github.com/user-attachments/assets/e8b7c0e4-3db2-4642-a6b8-521e10784a7e)
+4bit
+
 ## 使用方法
 
 1. アプリケーションの起動:
@@ -65,16 +67,18 @@ python main.py
 3. 「画像分析実行」ボタンをクリックして処理を開始
 
 4. 処理結果は各画像と同じフォルダに、同名のテキストファイル（.txt）として保存されます
-![alt text](image-2.png)
+![image](https://github.com/user-attachments/assets/4e2429c7-e685-43a5-a821-079c53b06841)
 
-![alt text](image.png)
+![image](https://github.com/user-attachments/assets/0bea368c-ff73-4dfe-a995-2698a4c629eb)
+
 
 
 ## カスタムプロンプト
 
 カスタムプロンプトを使用することで、画像解析の出力をカスタマイズできます。
 プロンプトが空の場合、選択された詳細度に応じたデフォルトのプロンプトが使用されます。
-![alt text](image-3.png)
+![image](https://github.com/user-attachments/assets/f7f590ef-6940-460c-8a7e-7b9617211264)
+
 
 ## サポートされている画像フォーマット
 
