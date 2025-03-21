@@ -45,10 +45,10 @@ pip install -r requirements.txt
 - [Ollama公式サイト](https://ollama.ai/)からOllamaをインストール
 - 必要なモデルをダウンロード:
 ```bash
-ollama pull gemma:27b
+ollama run gemma3:27b
 ```
 ![image](https://github.com/user-attachments/assets/e8b7c0e4-3db2-4642-a6b8-521e10784a7e)
-4bit
+4B以上ならできそう
 
 ## 使用方法
 
