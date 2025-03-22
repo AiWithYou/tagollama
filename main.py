@@ -108,6 +108,7 @@ class ImageAnalyzer:
         """レスポンスから不要なテキストを削除し、画像の説明のみを残す"""
         # 1. 初期クリーニング：不要な前置き表現の削除
         patterns = [
+            r"^Here’s a description of the image in 2, ",
             r"^説明[:：]\s*",
             r"^Here's .*?:",
             r"^This image shows",
@@ -479,9 +480,9 @@ class ImageAnalyzerGUI:
             return
 
         self.stop_analysis = False
-        self.run_button.config(state="disabled") # 実行中はボタンを無効化
-        self.stop_button.config(state="normal") # 停止ボタンを有効化
-        self.progress_var.set(0) # プログレスバーをリセット
+        self.run_button.config(state="disabled")  # 実行中はボタンを無効化
+        self.stop_button.config(state="normal")  # 停止ボタンを有効化
+        self.progress_var.set(0)  # プログレスバーをリセット
 
         # ログをGUIに表示するためのハンドラーを設定
         class TextHandler(logging.Handler):
@@ -510,8 +511,8 @@ class ImageAnalyzerGUI:
                 # ディレクトリ内の画像を処理
                 processed, errors = analyzer.process_directory(
                     folder_path,
-                    progress_callback=self.update_progress, # プログレスバーを更新するコールバック関数
-                    stop_check=lambda: self.stop_analysis # 停止ボタンが押されたかチェックする関数
+                    progress_callback=self.update_progress,  # プログレスバーを更新するコールバック関数
+                    stop_check=lambda: self.stop_analysis  # 停止ボタンが押されたかチェックする関数
                 )
                 if self.stop_analysis:
                     self.append_log("\n処理が停止されました:")
@@ -522,9 +523,9 @@ class ImageAnalyzerGUI:
             except Exception as e:
                 self.append_log(f"エラーが発生しました: {str(e)}")
             finally:
-                self.run_button.config(state="normal") # 実行ボタンを再度有効化
-                self.stop_button.config(state="disabled") # 停止ボタンを無効化
-                self.stop_analysis = False # 停止フラグをリセット
+                self.run_button.config(state="normal")  # 実行ボタンを再度有効化
+                self.stop_button.config(state="disabled")  # 停止ボタンを無効化
+                self.stop_analysis = False  # 停止フラグをリセット
 
         Thread(target=analysis_thread, daemon=True).start()
 
